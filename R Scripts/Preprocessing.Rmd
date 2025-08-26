@@ -1,0 +1,311 @@
+---
+title: "Preprocessing"
+output: html_document
+date: "2025-08-26"
+---
+
+```{r}
+###################################     Load all the libraries      #######################################
+
+library(dada2)           # Amplicon sequence processing
+library(phyloseq)        # Microbiome data integration and analysis
+library(vegan)           # Ecological diversity and ordination
+library(decontam)        # Contaminant identification
+library(phangorn)        # Phylogenetic tree construction
+library(DECIPHER)        # Sequence analysis and manipulation
+library(DESeq2)          # Differential abundance analysis
+library(qiime2R)         # Import QIIME2 artifacts
+library(MicrobiotaProcess) # Microbiome data processing and visualization
+library(ggplot2)         # Core plotting
+library(ggpubr)          # Publication-ready plots
+library(plotly)          # Interactive plots
+library(ggdendro)        # Dendrograms with ggplot2
+library(grid)            # Low-level graphics
+library(gridExtra)       # Grid-based layout
+library(RColorBrewer)    # Color palettes
+library(pheatmap)        # Heatmaps
+library(ggrepel)         # Smart text labels
+library(ggprism)         # Prism-style plots
+library(aplot)           # Plot composition
+library(ggh4x)           # Extended ggplot2 functionality
+library(lme4)            # Linear mixed-effects models
+library(lmerTest)        # p-values for lme4
+library(MASS)            # Statistical functions
+library(car)             # Companion to applied regression
+library(emmeans)         # Estimated marginal means
+library(rcompanion)      # Companion functions for stats
+library(pairwiseAdonis) # Pairwise PERMANOVA
+library(philentropy)     # Distance metrics
+library(modeest)         # Mode estimation
+library(matrixStats)     # Matrix operations
+library(philr)           # Compositional data transformation
+library(GUniFrac)        # Generalized UniFrac distances
+library(SpiecEasi)       # Sparse ecological networks
+library(NetCoMi)         # Network construction and comparison
+library(igraph)          # Network analysis
+library(MicrobiomeStat)  # Statistical tools for microbiome data
+library(staRank)         # Rank-based statistics
+library(tidyverse)       # Includes dplyr, ggplot2, tidyr, etc.
+library(data.table)      # Fast data manipulation
+library(tibble)          # Tidy data frames
+library(dplyr)
+library(tidyr)
+library(forcats)         # Factor manipulation
+library(stringr)         # String operations
+library(rlang)           # Tidy evaluation
+library(knitr)           # Dynamic report generation
+library(rmarkdown)       # R Markdown support
+library(pander)          # Pandoc markdown rendering
+library(tinytex)         # LaTeX support
+library(adespatial)      # Spatial analysis
+library(devtools)        # Package development
+library(MicrobeR)        # Microbiome visualization
+library(microbiome)      # Microbiome analysis
+library(microbiomeSeq)   # Microbiome sequencing tools
+library(microbiomeutilities) # Utility functions
+library(ranacapa)        # eDNA analysis
+library(VennDiagram)     # Venn diagrams
+library(UpSetR)          # Set visualization
+library(biomformat)      # BIOM file format
+library(Biostrings)      # Biological strings
+library(ape)             # Phylogenetics
+library(yaml)            # YAML parsing
+library(parallel)        # Parallel computing
+
+```
+
+
+```{r}
+
+###################################    Processing using DADA2      #######################################
+
+# Set working directory to current folder
+setwd("./")
+
+# Define raw reads directory
+path <- "./Raw_reads"
+list.files(path)
+
+# Identify forward and reverse reads
+fnFs <- sort(list.files(path, pattern = "_1.fastq.gz", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern = "_2.fastq.gz", full.names = TRUE))
+
+# Extract sample names
+sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+head(sample.names)
+
+```
+
+```{r}
+#Plot quality profiles
+plot.quals <- plotQualityProfile(fnFs[4])
+ggsave("qualplot_Fwd_WT.pdf", plot.quals)
+
+plot.quals <- plotQualityProfile(fnRs[1])
+ggsave("qualplot_Rev_WT.pdf", plot.quals)
+
+read.fastq(fnFs[3])
+
+```
+
+```{r}
+#Filtering and trimming
+# Define filtered output paths
+filtFs <- file.path("filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path("filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+names(filtFs) <- sample.names
+names(filtRs) <- sample.names
+
+# Filter and trim
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs,
+                     maxN = 0, maxEE = c(2, 2), truncQ = 2,
+                     rm.phix = TRUE, compress = TRUE, multithread = TRUE)
+head(out)
+
+```
+
+```{r}
+#Learn error rate and dereplication
+errF <- learnErrors(filtFs, multithread = TRUE)
+errR <- learnErrors(filtRs, multithread = TRUE)
+
+ggsave("errorplot_F.pdf", plotErrors(errF, nominalQ = TRUE))
+ggsave("errorplot_R.pdf", plotErrors(errR, nominalQ = TRUE))
+
+derepFs <- derepFastq(filtFs, verbose = TRUE)
+derepRs <- derepFastq(filtRs, verbose = TRUE)
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+
+```
+
+```{r}
+#Denoising and merging
+dadaFs <- dada(derepFs, err = errF, multithread = TRUE)
+dadaRs <- dada(derepRs, err = errR, multithread = TRUE)
+
+mergers <- mergePairs(dadaFs, filtFs, dadaRs, filtRs, verbose = TRUE)
+head(mergers)
+
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+table(nchar(getSequences(seqtab)))
+
+saveRDS(seqtab, "seqtab.rds")
+
+```
+
+```{r}
+#Chimera removal
+seqtab.nochim <- removeBimeraDenovo(seqtab, method = "consensus", multithread = TRUE, verbose = TRUE)
+dim(seqtab.nochim)
+sum(seqtab.nochim) / sum(seqtab)
+
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out,
+               sapply(dadaFs, getN),
+               sapply(dadaRs, getN),
+               sapply(mergers, getN),
+               rowSums(seqtab.nochim))
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+rownames(track) <- sample.names
+head(track)
+
+```
+
+```{r}
+#Assign Taxonomy
+taxa <- assignTaxonomy(seqtab.nochim, "./silva_nr99_v138.1_train_set.fa.gz", multithread = TRUE)
+taxa <- addSpecies(taxa, "./silva_species_assignment_v138.1.fa.gz")
+
+rownames(taxa) <- NULL
+head(taxa)
+
+saveRDS(taxa, "16SGallow_taxo2.rds")
+
+```
+
+```{r}
+#Save the outputs
+saveRDS(seqtab.nochim, "seqtab_final.rds")
+saveRDS(taxa, "tax_final.rds")
+
+# Create ASV FASTA and count table
+asv_seqs <- colnames(seqtab.nochim)
+asv_headers <- paste0(">ASV_", seq_along(asv_seqs))
+asv_fasta <- c(rbind(asv_headers, asv_seqs))
+write(asv_fasta, "ASVs.fa")
+
+asv_tab <- t(seqtab.nochim)
+rownames(asv_tab) <- sub(">", "", asv_headers)
+write.table(asv_tab, "ASVs_counts.tsv", sep = "\t", quote = FALSE, col.names = NA)
+
+# Taxonomy table
+ranks <- c("domain", "phylum", "class", "order", "family", "genus", "species")
+asv_tax <- taxa
+rownames(asv_tax) <- sub(">", "", asv_headers)
+colnames(asv_tax) <- ranks
+write.table(asv_tax, "ASVs_taxonomy.tsv", sep = "\t", quote = FALSE, col.names = NA)
+
+```
+
+```{r}
+#Decipher
+seqtab <- readRDS("seqtab_final.rds")
+dna <- DNAStringSet(getSequences(seqtab))
+load("./SILVA_SSU_r138_2019.RData")
+
+ids <- IdTaxa(dna, trainingSet, strand = "top", processors = NULL, verbose = FALSE)
+taxid <- t(sapply(ids, function(x) {
+  m <- match(ranks, x$rank)
+  taxa <- x$taxon[m]
+  taxa[startsWith(taxa, "unclassified_")] <- NA
+  taxa
+}))
+colnames(taxid) <- ranks
+rownames(taxid) <- getSequences(seqtab)
+
+saveRDS(taxid, "16Gallow_taxo2.rds")
+
+```
+
+```{r}
+#Construct a phyloseq object
+sdata <- read.csv("Gallow_metadata.csv", row.names = 1, header = TRUE, sep = ",", check.names = TRUE, stringsAsFactors = TRUE)
+samdata <- sample_data(sdata)
+tax16S <- readRDS("16SGallow_taxo2.rds")
+asv16S <- readRDS("seqtab_final.rds")
+
+phyloseq_object_all <- phyloseq(otu_table(asv16S, taxa_are_rows = FALSE),
+                                tax_table(tax16S),
+                                samdata)
+
+ps16S_3 <- subset_taxa(phyloseq_object_all,
+                       !is.na(Kingdom) & !is.na(Phylum) &
+                       !Order %in% c("Chloroplast") &
+                       !Family %in% c("Mitochondria") &
+                       !Genus %in% c("Wolbachia"))
+
+```
+
+```{r}
+#Rename ASV and filter
+dna.16S <- Biostrings::DNAStringSet(taxa_names(ps16S_3))
+names(dna.16S) <- taxa_names(ps16S_3)
+ps16S_4 <- merge_phyloseq(ps16S_3, dna.16S)
+taxa_names(ps16S_4) <- paste0("ASV", seq(ntaxa(ps16S_4)))
+
+ps16S_5 <- prune_samples(sample_sums(ps16S_4) >= 10, ps16S_4)
+ps16S_6 <- filter_taxa(ps16S_5, function(x) sum(x) > 0, TRUE)
+
+total.depth <- sum(otu_table(ps16S_6))
+threshold <- 1e-6 * total.depth
+ps16S_5 <- prune_taxa(taxa_sums(ps16S_4) > threshold, ps16S_6)
+
+```
+
+```{r}
+#We currently have a sequence table but no info about possible phylogenetic relationships between them.A tree is needed to calculate certain metrics like Unifrac. Sequence alignment is needed before tree construction.
+# Extract representative sequences from the filtered phyloseq object
+rep_seqs <- refseq(ps16S_5)
+
+# Perform multiple sequence alignment
+aligned_seqs <- AlignSeqs(DNAStringSet(rep_seqs), anchor = NA)
+
+# Convert alignment to phyDat format for tree building
+alignment_phyDat <- phyDat(as(aligned_seqs, "matrix"), type = "DNA")
+
+# Run model testing to identify best substitution model
+model_test <- modelTest(alignment_phyDat)
+
+# Compute distance matrix and build initial tree using Neighbor Joining
+dist_matrix <- dist.ml(alignment_phyDat)
+tree_NJ <- NJ(dist_matrix)  # Note: tip order may differ from sequence order
+
+# Fit maximum likelihood model to the NJ tree
+fit_initial <- pml(tree_NJ, data = alignment_phyDat)
+
+# Update model parameters (GTR model with gamma and invariant sites)
+fit_GTR <- update(fit_initial, k = 4, inv = 0.2)
+fit_GTR_optimized <- optim.pml(fit_GTR,
+                               model = "GTR",
+                               optInv = TRUE,
+                               optGamma = TRUE,
+                               rearrangement = "stochastic",
+                               control = pml.control(trace = 0))
+
+# Combine all components into a final phyloseq object
+ps16S_final <- phyloseq(
+  otu_table(ps16S_5, taxa_are_rows = FALSE),
+  tax_table(ps16S_5),
+  sample_data(samdata),
+  refseq(ps16S_5),
+  phy_tree(fit_GTR_optimized$tree)
+)
+
+# Save the final phyloseq object
+saveRDS(ps16S_final, "16S.Gallow_PS.rds")
+
+
+```
+
