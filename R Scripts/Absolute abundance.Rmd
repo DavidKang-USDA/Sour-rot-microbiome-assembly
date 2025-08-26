@@ -1,0 +1,143 @@
+---
+title: "Absolute"
+output: html_document
+date: "2025-08-26"
+---
+
+```{r}
+# Load libraries
+library(tidyverse)
+library(ggpubr)
+
+# Load metadata and bacterial abundance data
+metadata <- read.csv("Gallow_metadata.csv", header = TRUE, stringsAsFactors = FALSE)
+taxonomy <- read.csv("absolute_bacteria.csv", header = TRUE, stringsAsFactors = FALSE)
+
+# Reshape taxonomy to long format
+taxonomy_long <- taxonomy %>%
+  pivot_longer(cols = -c(ASV, Kingdom, Phylum, Class, Order, Family, Genus, Species),
+               names_to = "Sample", values_to = "Abundance")
+
+# Merge with metadata
+merged_data <- taxonomy_long %>%
+  left_join(metadata, by = c("Sample" = "ID"))
+
+# Export merged dataset
+write.csv(merged_data, "bacteriamerged_dataset.csv", row.names = FALSE)
+
+# Subset by host
+filtered_fly    <- merged_data %>% filter(Host == "Fly")
+filtered_grapes <- merged_data %>% filter(Host == "Grapes")
+
+# Define treatment order
+fly_treatments <- c("ACCHM", "ACCHF", "WOCHM", "WOCHF", "CLSBM", "CLSBF", "WGSBM", "WGSBF",
+                    "CLPSM", "CLPSF", "VIPSM", "VIPSF", "ACPNM", "ACPNF", "GAPNM", "GAPNF")
+
+grape_treatments <- c("ACCHG", "WOCHG", "CLSBG", "WGSBG", "CLPSG", "VIPSG", "ACPNG", "GAPNG")
+
+# Define genera of interest
+target_genera <- c("Acetobacter", "Commensalibacter", "Corynebacterium", "Gluconobacter",
+                   "Ketogulonicigenium", "Komagataeibacter", "Leucobacter", "Microbacterium",
+                   "Ochrobactrun", "Sphingobacterium", "Taibaiella", "Tanticharoenia",
+                   "Tatumella", "Vagococcus", "Vibrio")
+
+# Define color palette
+genus_colors <- c(
+  "Acetobacter" = "orange", "Commensalibacter" = "#DA5724", "Corynebacterium" = "#508578",
+  "Gluconobacter" = "#CD9BCD", "Ketogulonicigenium" = "lightgreen", "Komagataeibacter" = "#678dc6",
+  "Leucobacter" = "#009179", "Microbacterium" = "magenta", "Ochrobactrun" = "#599861",
+  "Sphingobacterium" = "#CBD588", "Taibaiella" = "#D14285", "Tanticharoenia" = "#652926",
+  "Tatumella" = "#C84248", "Vagococcus" = "#AD6F3B", "Vibrio" = "#673770", "Other" = "black"
+)
+
+# Prepare fly data
+Abs_fly <- filtered_fly %>%
+  mutate(Treatment = factor(Treatment, levels = fly_treatments),
+         Genus = ifelse(Genus %in% target_genera, Genus, "Other"))
+
+# Prepare grapes data
+Abs_grapes <- filtered_grapes %>%
+  mutate(Treatment = factor(Treatment, levels = grape_treatments),
+         Genus = ifelse(Genus %in% target_genera, Genus, "Other"))
+
+# Plot fly
+A1 <- ggplot(Abs_fly, aes(x = Type, y = Abundance, fill = Genus)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = genus_colors) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x = element_blank(),
+        legend.position = "none") +
+  ylab("Absolute Abundance of Top 15 Genera") +
+  ggtitle("Fly Samples")
+
+# Plot grapes
+A2 <- ggplot(Abs_grapes, aes(x = Type, y = Abundance, fill = Genus)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = genus_colors) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x = element_blank()) +
+  ylab("Absolute Abundance of Top 15 Genera") +
+  ggtitle("Grape Samples")
+
+# Combine and save
+ggarrange(A1, A2, labels = c("A", "B"), ncol = 2)
+ggsave("Absolute_bacteria.pdf", width = 7, height = 4, dpi = 700)
+
+```
+
+```{r}
+#For fungi
+# Load fungal taxonomy and metadata
+metadata <- read.csv("Gallow_metadata.csv", header = TRUE, stringsAsFactors = FALSE)
+taxonomy <- read.csv("fungi_absolute.csv", header = TRUE, stringsAsFactors = FALSE)
+
+# Reshape and merge
+taxonomy_long <- taxonomy %>%
+  pivot_longer(cols = -c(ASV, Kingdom, Phylum, Class, Order, Family, Genus, Species),
+               names_to = "Sample", values_to = "Abundance")
+
+merged_data <- taxonomy_long %>%
+  left_join(metadata, by = c("Sample" = "ID"))
+
+write.csv(merged_data, "fungimerged_dataset.csv", row.names = FALSE)
+
+# Define treatment order
+fungi_treatments <- c("ACCHM", "ACCHF", "WOCHM", "WOCHF", "CLSBM", "CLSBF", "WGSBM", "WGSBF",
+                      "CLPSM", "CLPSF", "VIPSM", "VIPSF", "ACPNM", "ACPNF", "GAPNM", "GAPNF")
+
+# Define fungal genera of interest
+fungi_genera <- c("Zygosaccharomyces", "Zygoascus", "Tomentella", "Starmerella", "Saccharomycopsis",
+                  "Ramularia", "Pichia", "Penicillium", "Meyerozyma", "Lactifluus", "Hanseniaspora",
+                  "Cladosporium", "Candida", "Aspergillus", "Acremonium")
+
+# Define colors
+fungi_colors <- c(
+  "Zygosaccharomyces" = "#CD9BCD", "Zygoascus" = "#AD6F3B", "Tomentella" = "#C84248",
+  "Starmerella" = "#652926", "Saccharomycopsis" = "magenta", "Ramularia" = "#599861",
+  "Pichia" = "#009179", "Penicillium" = "#8A7C64", "Meyerozyma" = "#599861",
+  "Lactifluus" = "#5F7FC7", "Hanseniaspora" = "lightgreen", "Cladosporium" = "#CBD588",
+  "Candida" = "grey", "Aspergillus" = "#DA5724", "Acremonium" = "orange", "Other" = "black"
+)
+
+# Prepare data
+Abs_fungi <- merged_data %>%
+  mutate(Treatment = factor(Treatment, levels = fungi_treatments),
+         Genus = ifelse(Genus %in% fungi_genera, Genus, "Other"))
+
+# Plot
+A3 <- ggplot(Abs_fungi, aes(x = Type, y = Abundance, fill = Genus)) +
+  geom_bar(stat = "identity", position = "stack") +
+  scale_fill_manual(values = fungi_colors) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        axis.title.x = element_blank()) +
+  ylab("Absolute Abundance of Top 15 Fungal Genera") +
+  ggtitle("Fungal Genus Composition Across Treatments")
+
+ggsave("Fungi_absolute.pdf", width = 4, height = 4, dpi = 700)
+
+
+```
+
