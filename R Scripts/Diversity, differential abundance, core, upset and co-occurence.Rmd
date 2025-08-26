@@ -1,0 +1,904 @@
+---
+title: "Diversity"
+output: html_document
+date: "2025-08-26"
+---
+
+```{r}
+
+########################################   Sequencing statistics      #############################################
+
+# Load phyloseq object
+d16S <- readRDS("16S.Gallow_PS.rds")
+
+# Inspect basic components
+head(otu_table(d16S))
+head(tax_table(d16S))
+head(sample_data(d16S))
+phy_tree(d16S)
+
+# Summary stats
+ntaxa(d16S)
+nsamples(d16S)
+sample_sums(d16S)
+taxa_sums(d16S)
+rank_names(d16S)
+sample_variables(d16S)
+
+# Filter ASVs: ≥10 reads/sample, present in ≥2 samples
+d16S <- core(d16S, detection = 10, prevalence = 2 / nsamples(d16S))
+
+# Save filtered object
+saveRDS(d16S, "16S.Gallow_PS.rds")
+
+# Sequencing depth per sample
+sdt16S <- data.table(as(sample_data(d16S), "data.frame"),
+                     TotalReads = sample_sums(d16S),
+                     keep.rownames = TRUE)
+write.csv(sdt16S, "totalreads.csv", row.names = FALSE)
+
+# Export count and taxonomy tables
+write.csv(as.data.frame(otu_table(d16S)), "bacteriacount_data.csv")
+write.csv(as.data.frame(tax_table(d16S)), "taxonomy_data.csv")
+
+# Count unique families and genera
+families <- tax_table(d16S)[, "Family"]
+genera <- tax_table(d16S)[, "Genus"]
+cat("Unique families:", length(unique(families[!is.na(families)])), "\n")
+cat("Unique genera:", length(unique(genera[!is.na(genera)])), "\n")
+
+```
+
+```{r}
+########################################   Rarefaction analysis     #############################################
+
+# Extract sample and OTU data
+sam.data <- data.frame(sample_data(d16S))
+OTU.table <- otu_table(d16S)
+
+# Species richness
+S <- specnumber(t(OTU.table))
+raremax <- min(rowSums(t(OTU.table)))
+
+# Rarefaction plot
+ggrare(d16S, step = 10, color = "Treatment", se = FALSE) +
+  geom_vline(xintercept = min(sample_sums(d16S)), color = "gray60")
+ggsave("bacteriararefaction.pdf", width = 6, height = 4, dpi = 700)
+
+```
+
+```{r}
+########################################   Alpha diversity analysis    #############################################
+# Estimate alpha diversity
+table_r16S <- estimate_richness(d16S, split = TRUE,
+                                measures = c("Observed", "InvSimpson", "Shannon", "Chao"))
+
+# Combine with metadata
+datar16S <- cbind(as.data.frame(sample_data(d16S)), table_r16S)
+write.csv(datar16S, "datar16S-alphadiv.csv", row.names = FALSE)
+
+# Histograms
+hist(datar16S$Shannon, main = "Shannon diversity", breaks = 10)
+hist(datar16S$InvSimpson, main = "Simpson diversity", breaks = 10)
+hist(datar16S$Chao, main = "Chao richness", breaks = 15)
+
+# Convert variables to factors
+datar16S$Location <- as.factor(datar16S$Location)
+datar16S$Variety  <- as.factor(datar16S$Variety)
+datar16S$Type     <- as.factor(datar16S$Type)
+
+# Set Treatment order
+newSTorder <- c("ACCHM", "ACCHF", "WOCHM", "WOCHF", "CLSBM", "CLSBF", "WGSBM", "WGSBF",
+                "CLPSM", "CLPSF", "VIPSM", "VIPSF", "ACPNM", "ACPNF", "GAPNM", "GAPNF",
+                "ACCHG", "WOCHG", "CLSBG", "WGSBG", "CLPSG", "VIPSG", "ACPNG", "GAPNG")
+datar16S$Treatment <- factor(datar16S$Treatment, levels = newSTorder)
+
+```
+
+```{r}
+#Plot diversity plots
+
+# Chao1 richness plot
+A1 <- ggplot(datar16S, aes(x = Type, y = Chao1)) +
+  geom_boxplot(aes(fill = Type), width = 0.85, lwd = 0.2) +
+  geom_point(aes(color = Type), position = position_dodge(0.3), alpha = 0.5) +
+  geom_point(size = 0.2, colour = "black") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ggtitle("Chao1 richness") +
+  scale_fill_manual(values = c("Female" = "#00AFBB", "Male" = "#E7B800", "Grapes" = "#FC4E07")) +
+  scale_colour_manual(values = c("Female" = "#00AFBB", "Male" = "#E7B800", "Grapes" = "#FC4E07"))
+
+# Shannon diversity plot
+A2 <- ggplot(datar16S, aes(x = Type, y = Shannon)) +
+  geom_boxplot(aes(fill = Type), width = 0.85, lwd = 0.2) +
+  geom_point(aes(color = Type), position = position_dodge(0.3), alpha = 0.5) +
+  geom_point(size = 0.2, colour = "black") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ggtitle("Shannon diversity") +
+  scale_fill_manual(values = c("Female" = "#00AFBB", "Male" = "#E7B800", "Grapes" = "#FC4E07")) +
+  scale_colour_manual(values = c("Female" = "#00AFBB", "Male" = "#E7B800", "Grapes" = "#FC4E07"))
+
+# Combine plots
+ggarrange(A1, A2, labels = c("A", "B"), ncol = 2)
+ggsave("Alpha_type.pdf", width = 8, height = 4, dpi = 700)
+
+```
+
+```{r}
+#Statistical modeling for alpha diversity
+# Linear mixed model: Shannon
+model_shannon <- lmer(Shannon ~ Type * Variety + (1 | Location), data = datar16S)
+summary(model_shannon)
+VarCorr(model_shannon)
+anova(model_shannon)
+
+# Residual diagnostics
+par(mfrow = c(1, 2))
+plot(model_shannon)
+qqnorm(resid(model_shannon)); qqline(resid(model_shannon))
+
+# Pairwise comparisons
+emmeans_shannon_crop <- emmeans(model_shannon, pairwise ~ Variety)
+
+# Linear mixed model: Chao1
+model_chao1 <- lmer(Chao1 ~ Type * Variety + (1 | Location), data = datar16S)
+summary(model_chao1)
+VarCorr(model_chao1)
+anova(model_chao1)
+
+# Residual diagnostics
+par(mfrow = c(1, 2))
+plot(model_chao1)
+qqnorm(resid(model_chao1)); qqline(resid(model_chao1))
+
+# Pairwise comparisons
+emmeans_chao1_crop <- emmeans(model_chao1, pairwise ~ Variety)
+emmeans_chao1_sex  <- emmeans(model_chao1, pairwise ~ Type)
+
+# Visualization of comparisons
+plot(emmeans_shannon_crop, comparisons = TRUE) + ggtitle("Shannon Diversity by Crop")
+plot(emmeans_chao1_crop, comparisons = TRUE) + ggtitle("Chao1 Richness by Crop")
+
+# Summary tables
+fixed_summary_shannon <- broom.mixed::tidy(model_shannon, effects = "fixed")
+fixed_summary_chao1   <- broom.mixed::tidy(model_chao1, effects = "fixed")
+
+# Extract contrasts
+contrast_shannon_crop <- as.data.frame(emmeans_shannon_crop$contrasts)
+
+```
+
+```{r}
+#Now normalizing for sequencind depth before we start the beta diversity analysis
+
+# Convert phyloseq object to metagenomeSeq format
+MGS <- phyloseq_to_metagenomeSeq(d16S)
+
+# Estimate percentile for normalization
+p <- cumNormStatFast(MGS)
+
+# Apply cumulative sum scaling normalization
+MGS <- cumNorm(MGS, p = p)
+
+# View normalization factors per sample
+normFactors(MGS)
+
+# Extract normalized count matrix
+norm_counts <- MRcounts(MGS, norm = TRUE)
+
+# Convert to phyloseq OTU table
+norm_otu <- otu_table(norm_counts, taxa_are_rows = TRUE)
+
+# Reconstruct normalized phyloseq object
+bacteria_css_norm <- phyloseq(
+  norm_otu,
+  tax_table(d16S),
+  refseq(d16S),
+  phy_tree(d16S),
+  sample_data(d16S)
+)
+
+# Summary statistics
+total_reads <- sum(taxa_sums(bacteria_css_norm))
+mean_reads  <- mean(sample_sums(bacteria_css_norm))
+median_reads <- median(sample_sums(bacteria_css_norm))
+
+# Display results
+cat("Total normalized reads:", total_reads, "\n")
+cat("Mean reads per sample:", mean_reads, "\n")
+cat("Median reads per sample:", median_reads, "\n")
+
+```
+
+
+```{r}
+#########################################  Beta Diversity Analysis      ##########################################
+
+#We used both jaccard and bray curtis distance to run this analysis
+
+# Perform PCoA (based on jaccard distance)
+pcoa_result <- ordinate(bacteria.css.norm, method = "PCoA", distance = "jaccard")
+
+# Plot PCoA
+pcoa_plot <- plot_ordination(bacteria.css.norm, pcoa_result,
+                             color = "Variety", shape = "Host",
+                             title = "PCoA of Bacterial Communities") +
+  geom_point(aes(color = Variety), alpha = 1, size = 3) +
+  theme_grey()
+
+print(pcoa_plot)
+ggsave("PCoA.pdf", pcoa_plot, width = 10, height = 5, dpi = 700)
+
+
+# Perform NMDS (based on bray curtis distance)
+nmds_result <- ordinate(bacteria.css.norm, method = "NMDS", distance = "bray")
+
+# Plot NMDS
+nmds_plot <- plot_ordination(bacteria.css.norm, nmds_result,
+                             color = "Variety", shape = "Host",
+                             title = "NMDS of Bacterial Communities") +
+  geom_point(aes(color = Variety), alpha = 1, size = 4) +
+  stat_ellipse(aes(group = Host, fill = Host), geom = "polygon",
+               linetype = 2, alpha = 0.15, level = 0.95) +
+  scale_colour_manual(values = c("Sauvignon Blanc" = "#E69F00",
+                                 "Chardonnay" = "#56B4E9",
+                                 "Petite Sirah" = "#009E73",
+                                 "Pinot Noir" = "#F0E442")) +
+  scale_fill_manual(values = c("Fly" = "#19a119", "Grapes" = "#FC4E07")) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+cat("NMDS stress:", nmds_result$stress, "\n")
+print(nmds_plot)
+ggsave("NMDS_Bacteria_Host.pdf", nmds_plot, width = 6, height = 5, dpi = 700)
+
+
+#Dispersion analysis
+set.seed(123)
+bray_dist <- phyloseq::distance(bacteria.css.norm, method = "bray")
+
+# Dispersion by Type
+disp_type <- betadisper(bray_dist, sample_data(bacteria.css.norm)$Type)
+plot(disp_type, main = "Dispersion by Type")
+boxplot(disp_type)
+permutest(disp_type)
+
+# Dispersion by Variety
+disp_variety <- betadisper(bray_dist, sample_data(bacteria.css.norm)$Variety)
+plot(disp_variety, main = "Dispersion by Variety")
+boxplot(disp_variety)
+permutest(disp_variety)
+
+# Dispersion by Location
+disp_location <- betadisper(bray_dist, sample_data(bacteria.css.norm)$Location)
+plot(disp_location, main = "Dispersion by Location")
+boxplot(disp_location)
+permutest(disp_location)
+
+
+#Permanova
+meta_df <- as(sample_data(bacteria.css.norm), "data.frame")
+adonis_result <- adonis2(bray_dist ~ Location + Type * Variety * Location,
+                         data = meta_df, by = "terms")
+print(adonis_result)
+
+# Pairwise PERMANOVA by Type
+pairwise_result <- pairwise.adonis(bray_dist, meta_df$Type)
+write.csv(pairwise_result, "pairwisePermanova.csv", row.names = FALSE)
+
+
+#Permanova (Fly vs Grapes)
+# Subset samples
+fly_samples <- subset_samples(bacteria.css.norm, Host == "Fly")
+grape_samples <- subset_samples(bacteria.css.norm, Host == "Grapes")
+
+# Grapes
+grape_meta <- as(sample_data(grape_samples), "data.frame")
+grape_dist <- phyloseq::distance(grape_samples, method = "bray")
+adonis_grape <- adonis2(grape_dist ~ Location * Variety * Location * Variety,
+                        data = grape_meta, by = "terms")
+print(adonis_grape)
+
+pairwise_grape <- pairwise.adonis(grape_dist, grape_meta$Location)
+print(pairwise_grape)
+
+# Fly
+fly_meta <- as(sample_data(fly_samples), "data.frame")
+fly_dist <- phyloseq::distance(fly_samples, method = "bray")
+adonis_fly <- adonis2(fly_dist ~ Variety * Location,
+                      data = fly_meta, by = "terms")
+print(adonis_fly)
+
+
+```
+
+
+```{r}
+###############################################    Abundance plots      ###############################################
+
+# Aggregate to phylum level and transform to relative abundance
+bacteria_phylum <- bacteria.css.norm %>%
+  tax_glom("Phylum") %>%
+  transform_sample_counts(function(x) x / sum(x)) %>%
+  psmelt() %>%
+  arrange(Phylum)
+
+# Summarize abundance statistics
+phylum_summary <- bacteria_phylum %>%
+  group_by(Phylum) %>%
+  summarize(
+    min_abundance = min(Abundance),
+    max_abundance = max(Abundance),
+    mean_abundance = mean(Abundance),
+    median_abundance = median(Abundance)
+  )
+print(phylum_summary)
+
+# Set treatment order
+treatment_order <- c("ACCHM", "ACCHF", "WOCHM", "WOCHF", "CLSBM", "CLSBF", "WGSBM", "WGSBF",
+                     "CLPSM", "CLPSF", "VIPSM", "VIPSF", "ACPNM", "ACPNF", "GAPNM", "GAPNF",
+                     "ACCHG", "WOCHG", "CLSBG", "WGSBG", "CLPSG", "VIPSG", "ACPNG", "GAPNG")
+bacteria_phylum$Treatment <- factor(bacteria_phylum$Treatment, levels = treatment_order)
+
+# Define phylum colors
+phylum_colors <- c("#AD6F3B", "#20b2aa", "#88B04B", "#ffa500", "#92A8D1")
+
+# Plot phylum composition
+ggplot(bacteria_phylum, aes(x = Treatment, y = Abundance, fill = Phylum)) +
+  geom_bar(stat = "identity", position = "fill") +
+  scale_fill_manual(values = phylum_colors) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5),
+        axis.title.x = element_blank()) +
+  guides(fill = guide_legend(reverse = TRUE)) +
+  ylab("Relative Abundance (Phyla > 2%)") +
+  ggtitle("Bacterial Phylum Across Treatments")
+
+ggsave("bacteria_Phylum_plot.pdf", width = 8, height = 4.5, dpi = 700)
+write.csv(bacteria_phylum, "bacterial_phylum.csv", row.names = FALSE)
+
+
+#Genus level plots for fly and grapes samples
+# Subset fly and grape samples
+fly_samples   <- subset_samples(bacteria.css.norm, Host == "Fly")
+grape_samples <- subset_samples(bacteria.css.norm, Host == "Grapes")
+
+# Define top genera of interest and custom colors
+genera_of_interest <- c(
+  "Acetobacter", "Commensalibacter", "Corynebacterium", "Gluconobacter",
+  "Ketogulonicigenium", "Komagataeibacter", "Leucobacter", "Microbacterium",
+  "Ochrobactrun", "Sphingobacterium", "Taibaiella", "Tanticharoenia",
+  "Tatumella", "Vagococcus", "Vibrio"
+)
+
+genus_colors <- c(
+  "Acetobacter" = "orange", "Commensalibacter" = "#DA5724", "Corynebacterium" = "#508578",
+  "Gluconobacter" = "#CD9BCD", "Ketogulonicigenium" = "lightgreen", "Komagataeibacter" = "#678dc6",
+  "Leucobacter" = "#009179", "Microbacterium" = "magenta", "Ochrobactrun" = "#599861",
+  "Sphingobacterium" = "#CBD588", "Taibaiella" = "#D14285", "Tanticharoenia" = "#652926",
+  "Tatumella" = "#C84248", "Vagococcus" = "#AD6F3B", "Vibrio" = "#673770", "Other" = "black"
+)
+
+# Function to process and plot genus-level data
+plot_genus_bar <- function(physeq_obj, treatment_levels, x_var = "Type", position = "fill", title_suffix = "") {
+  genus_data <- tax_glom(physeq_obj, "Genus", NArm = TRUE) %>%
+    transform_sample_counts(function(x) x / sum(x))
+  
+  top15 <- names(sort(taxa_sums(genus_data), decreasing = TRUE))[1:15]
+  
+  melted <- psmelt(genus_data) %>%
+    mutate(
+      Genus = ifelse(Genus %in% top15, Genus, "Other"),
+      Treatment = factor(Treatment, levels = treatment_levels)
+    )
+  
+  ggplot(melted, aes_string(x = x_var, y = "Abundance", fill = "Genus")) +
+    geom_bar(stat = "identity", position = position) +
+    scale_fill_manual(values = genus_colors) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(angle = 90, vjust = 0.5),
+      axis.title.x = element_blank(),
+      legend.position = "none"
+    ) +
+    guides(fill = guide_legend(reverse = TRUE, keywidth = 1, keyheight = 1)) +
+    ylab("Relative Abundance of Top 15 Genera") +
+    ggtitle(paste("Genus Composition of Bacterial Communities", title_suffix))
+}
+
+# Define treatment orders
+fly_treatments   <- c("ACCHM", "ACCHF", "WOCHM", "WOCHF", "CLSBM", "CLSBF", "WGSBM", "WGSBF",
+                      "CLPSM", "CLPSF", "VIPSM", "VIPSF", "ACPNM", "ACPNF", "GAPNM", "GAPNF")
+grape_treatments <- c("ACCHG", "WOCHG", "CLSBG", "WGSBG", "CLPSG", "VIPSG", "ACPNG", "GAPNG")
+
+# Generate plots
+T1 <- plot_genus_bar(fly_samples, fly_treatments, x_var = "Type", position = "fill", title_suffix = "(Fly Samples)")
+T2 <- plot_genus_bar(grape_samples, grape_treatments, x_var = "Host", position = "fill", title_suffix = "(Grape Samples)")
+
+# Combine and save
+ggarrange(T1, T2, labels = c("A", "B"), ncol = 2)
+ggsave("Relative7.pdf", width = 8, height = 4, dpi = 700)
+
+
+```
+
+```{r}
+################################################   Upset plot      ###############################################
+
+# Load normalized phyloseq object
+bacteria.css.norm <- readRDS("bacteria.css.norm.rds")
+
+# Generate UpSet plot data based on 'Type'
+upset_data <- get_upset(obj = bacteria.css.norm, factorNames = "Type")
+
+# Define plot settings
+plot_width  <- 4
+plot_height <- 4
+type_colors <- c("Female" = "#00AFBB", "Male" = "#E7B800", "Grapes" = "#FC4E07")
+type_levels <- unique(sample_data(bacteria.css.norm)$Type)
+
+pdf("UPSETbacteria.pdf", width = plot_width, height = plot_height)
+upset(
+  upset_data,
+  sets = type_levels,
+  sets.bar.color = type_colors,
+  order.by = "freq",
+  empty.intersections = "on"
+)
+dev.off()
+# Save as pdf
+ggsave("upsetplotTreatment.pdf", width = plot_width, height = plot_height, units = "in", dpi = 700)
+
+# Export taxonomy and UpSet data
+write.csv(tax_table(bacteria.css.norm), "taxonomy.csv", row.names = TRUE)
+write.csv(upset_data, "Upsetbacteriabetweentypes.csv", row.names = FALSE)
+
+
+```
+
+```{r}
+################################################     Core Microbiome          ###################################
+
+#For host type
+# Convert to relative abundances
+pseq.rel <- microbiome::transform(bacteria.css.norm, "compositional")
+
+# Identify unique host types
+host_types <- unique(as.character(meta(pseq.rel)$Type))
+print(host_types)
+
+# Find core OTUs for each host type
+core_taxa_list <- list()
+
+for (host in host_types) {
+  ps.sub <- subset_samples(pseq.rel, Type == host)
+  
+  core_members_host <- core_members(
+    ps.sub,
+    detection = 0.0001,
+    prevalence = 0.7
+  )
+  
+  message("No. of core taxa in ", host, ": ", length(core_members_host))
+  core_taxa_list[[host]] <- core_members_host
+}
+
+print(core_taxa_list)
+
+# Plot Venn diagram of core taxa
+pdf("BacteriaCommonOTUs.pdf", width = 5, height = 4)
+host_colors <- c("Female" = "#00AFBB", "Male" = "#E7B800", "Grapes" = "#FC4E07")
+plot(venn(core_taxa_list), fills = host_colors, alpha = 0.4)
+dev.off()
+
+
+#Core taxa by male and female
+# Subset fly samples (excluding Grapes)
+fly_samples <- subset_samples(bacteria.css.norm, Type != "Grapes") %>%
+  subset_taxa(!is.na(Genus) & Genus != "Unclassified")
+
+# Count samples per host type
+table(meta(fly_samples)$Type, useNA = "always")
+
+# Convert to relative abundances
+pseq.rel.fly <- microbiome::transform(fly_samples, "compositional")
+
+# Identify host types
+host_types <- unique(as.character(meta(pseq.rel.fly)$Type))
+print(host_types)
+
+# Format taxonomy names
+pseq.rel.fly.formatted <- format_to_besthit(pseq.rel.fly)
+taxa_names(pseq.rel.fly.formatted)[1:5]
+
+# Find core taxa for each host type
+core_taxa_list <- list()
+
+for (host in host_types) {
+  ps.sub <- subset_samples(pseq.rel.fly.formatted, Type == host)
+  
+  core_members_host <- core_members(
+    ps.sub,
+    detection = 0.0001,
+    prevalence = 0.7
+  )
+  
+  message("No. of core taxa in ", host, ": ", length(core_members_host))
+  core_taxa_list[[host]] <- core_members_host
+}
+
+print(core_taxa_list)
+
+# Plot Venn diagram for Male vs Female
+pdf("BacteriamalevsfemmCoreOTUs.pdf", width = 5, height = 4)
+host_colors <- c("Female" = "#00AFBB", "Male" = "#E7B800")
+plot(venn(core_taxa_list), fills = host_colors, alpha = 0.4)
+dev.off()
+
+```
+
+```{r}
+################################################     Differential analysis  ###########################################
+# Remove unclassified genera
+bacteria.css.norm <- subset_taxa(bacteria.css.norm, !is.na(Genus) & Genus != "Unclassified")
+
+# Check if taxa are rows
+taxa_are_rows(bacteria.css.norm)
+
+# Inspect structure
+str(bacteria.css.norm)
+
+# Convert phyloseq object to MicrobiomeStat format
+data.obj <- mStat_convert_phyloseq_to_data_obj(bacteria.css.norm)
+str(data.obj)
+
+# Run taxa-level test
+test.list <- generate_taxa_test_single(
+  data.obj = data.obj,
+  group.var = "Host",
+  adj.vars = "Type",
+  feature.dat.type = "count",
+  feature.level = "Genus",
+  prev.filter = 0.1,
+  abund.filter = 0.0001
+)
+
+# Generate volcano plot
+volcano_plots <- generate_taxa_volcano_single(
+  data.obj = data.obj,
+  group.var = "Type",
+  test.list = test.list,
+  feature.sig.level = 0.05,
+  feature.mt.method = "none",
+  palette = palette
+)
+print(volcano_plots)
+ggsave("Bacteria_grapes_vs_fly_volcano.pdf", width = 5, height = 4, units = "in", dpi = 700)
+
+# Generate boxplots
+generate_taxa_boxplot_single(
+  data.obj = data.obj,
+  subject.var = "Host",
+  group.var = "Host",
+  feature.level = "Genus",
+  feature.dat.type = "count",
+  top.k.plot = 15,
+  top.k.func = "mean",
+  transform = "log",
+  theme.choice = "bw",
+  pdf = TRUE,
+  pdf.wid = 11,
+  pdf.hei = 8.5
+)
+ggsave("Bacteria_grapes_vs_fly_boxplots.pdf", width = 10, height = 6, units = "in", dpi = 700)
+
+# Subset to fly samples only (exclude Grapes)
+malevsfemale <- subset_samples(bacteria.css.norm, Type != "Grapes")
+meta(malevsfemale)
+
+# Convert to MicrobiomeStat format
+malevsfemale.obj <- mStat_convert_phyloseq_to_data_obj(malevsfemale)
+str(malevsfemale.obj)
+
+# Run taxa-level test
+test.list <- generate_taxa_test_single(
+  data.obj = malevsfemale.obj,
+  group.var = "Type",
+  adj.vars = "Type",
+  feature.dat.type = "count",
+  feature.level = "Genus",
+  prev.filter = 0.1,
+  abund.filter = 0.0001
+)
+
+# Generate volcano plot
+volcano_plots <- generate_taxa_volcano_single(
+  data.obj = malevsfemale.obj,
+  group.var = "Type",
+  test.list = test.list,
+  feature.sig.level = 0.05,
+  feature.mt.method = "none",
+  palette = palette
+)
+print(volcano_plots)
+ggsave("Bacteria_male_vs_female_volcano.pdf", width = 4, height = 4, units = "in", dpi = 700)
+
+# Generate boxplots
+generate_taxa_boxplot_single(
+  data.obj = malevsfemale.obj,
+  subject.var = "Type",
+  group.var = "Type",
+  feature.level = "Genus",
+  feature.dat.type = "count",
+  top.k.plot = 15,
+  top.k.func = "mean",
+  transform = "log",
+  theme.choice = "bw",
+  pdf = TRUE,
+  pdf.wid = 11,
+  pdf.hei = 8.5
+)
+
+```
+
+
+```{r}
+
+#############################       Microbial co-occurence network with NetCoMi         ################################
+# Load phyloseq object
+d16S <- readRDS("16S.Gallow_PS.rds")
+
+# Agglomerate to genus level
+d16S_genus <- tax_glom(d16S, taxrank = "Genus")
+
+# Filter core taxa based on detection and prevalence
+d16S_core <- core(d16S_genus, detection = 0.0001, prevalence = 0.10)
+
+# Subset by host type
+grapes_network <- subset_samples(d16S_core, Host == "Grapes")
+fly_network    <- subset_samples(d16S_core, Host == "Fly")
+
+# Further subset fly samples by sex
+fly_male   <- subset_samples(fly_network, Type == "Male")
+fly_female <- subset_samples(fly_network, Type == "Female")
+
+# Save subsets
+saveRDS(grapes_network, "grapes_network.rds")
+saveRDS(fly_network, "fly_bacteria_network.rds")
+saveRDS(fly_male, "fly_male.rds")
+saveRDS(fly_female, "fly_female.rds")
+
+# Construct network for grapes only
+net_grapes <- netConstruct(
+  data = grapes_network,
+  filtTax = "highestFreq",
+  filtTaxPar = list(highestFreq = 80),
+  measure = "spring",
+  measurePar = list(nlambda = 10, rep.num = 100, Rmethod = "approx"),
+  normMethod = "none",
+  zeroMethod = "none",
+  sparsMethod = "none",
+  dissFunc = "signed",
+  verbose = 2,
+  seed = 123456
+)
+
+# Construct comparison network: fly vs grapes
+net_comparison <- netConstruct(
+  data = fly_network,
+  data2 = grapes_network,
+  measure = "spring",
+  measurePar = list(nlambda = 50, rep.num = 100),
+  normMethod = "none",
+  zeroMethod = "none",
+  seed = 123456
+)
+# Analyze network properties
+props_comparison <- netAnalyze(
+  net_comparison,
+  centrLCC = FALSE,
+  avDissIgnoreInf = TRUE,
+  sPathNorm = FALSE,
+  clustMethod = "cluster_fast_greedy",
+  hubPar = c("degree", "eigenvector"),
+  hubQuant = 0.9,
+  lnormFit = TRUE,
+  normDeg = FALSE,
+  normBetw = FALSE,
+  normClose = FALSE,
+  normEigen = FALSE
+)
+
+# Summary of network analysis
+summary(props_comparison)
+# Basic comparison plot
+pdf("fly_vs_grapes_network.pdf", width = 6, height = 5)
+plot(
+  props_comparison,
+  sameLayout = TRUE,
+  layoutGroup = 1,
+  rmSingles = "inboth",
+  nodeSize = "mclr",
+  labelScale = FALSE,
+  cexNodes = 1.5,
+  cexLabels = 2.5,
+  cexHubLabels = 3,
+  cexTitle = 3.8,
+  groupNames = c("Fly", "Grapes"),
+  hubBorderCol = "gray40"
+)
+dev.off()
+
+# Detailed comparison plot
+pdf("detailed_fly_vs_grapes_network.pdf", width = 6, height = 5)
+plot(
+  props_comparison,
+  sameLayout = TRUE,
+  layoutGroup = 1,
+  repulsion = 0.7,
+  shortenLabels = "intelligent",
+  labelLength = 18,
+  labelPattern = c(18, "'", 3),
+  labelScale = FALSE,
+  nodeFilter = "none",
+  nodeFilterPar = 20,
+  rmSingles = "inboth",
+  nodeSize = "eigen",
+  nodeSizeSpread = 3,
+  nodeColor = "cluster",
+  posCol = "blue",
+  negCol = "#DC3220",
+  colorVec = rainbow(13),
+  edgeTranspLow = 0,
+  edgeTranspHigh = 50,
+  hubBorderWidth = 1.5,
+  hubBorderCol = "black",
+  cexLabels = 0.5,
+  cexHubLabels = 0.7
+)
+dev.off()
+
+```
+
+```{r}
+#############################       Taxa for sour rot         ################################
+# Load phyloseq object
+# Aggregate and transform
+d16S_genus <- tax_glom(d16S, taxrank = "Genus")
+physeq_rel <- transform_sample_counts(d16S_genus, function(x) x / sum(x) * 100)
+
+# Filter for target genera
+target_genera <- c("Gluconobacter", "Acetobacter", "Bacillus", "Gluconoacetobacter", "Pseudomonas", "Komagataeibacter")
+physeq_filtered <- subset_taxa(physeq_rel, Genus %in% target_genera)
+physeq_df <- psmelt(physeq_filtered)
+physeq_df$Genus <- factor(physeq_df$Genus, levels = target_genera)
+
+# Rename and factor sample type
+physeq_df <- physeq_df %>% rename(SampleType = Host)
+physeq_df$SampleType <- factor(physeq_df$SampleType, levels = c("Fly", "Grapes"))
+
+# Wilcoxon test
+wilcox_results <- physeq_df %>%
+  group_by(Genus) %>%
+  summarise(p_value = wilcox.test(Abundance ~ SampleType)$p.value) %>%
+  mutate(sig_label = case_when(
+    p_value < 0.001 ~ "***",
+    p_value < 0.01  ~ "**",
+    p_value < 0.05  ~ "*",
+    TRUE            ~ "ns"
+  ))
+
+print(wilcox_results)
+
+# Plot
+max_abundance <- max(physeq_df$Abundance, na.rm = TRUE)
+
+ggplot(physeq_df, aes(x = SampleType, y = Abundance, fill = SampleType, color = SampleType)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.6) +
+  geom_jitter(width = 0.2, size = 2, alpha = 0.8) +
+  facet_wrap(~Genus, scales = "free") +
+  stat_compare_means(method = "wilcox.test", label.y = max_abundance * 1.1, label = "p.signif", comparisons = list(c("Fly", "Grapes"))) +
+  theme_minimal() +
+  labs(title = "Comparison of Genera Between Fly and Grapes", x = "Sample Type", y = "Relative Abundance (%)") +
+  scale_fill_manual(values = c("Fly" = "#19a119", "Grapes" = "#FC4E07")) +
+  scale_color_manual(values = c("Fly" = "#19a119", "Grapes" = "#FC4E07")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave("SourrotbacterialGenus_Comparison.pdf", width = 8, height = 6, dpi = 600)
+
+#comparison by male female and grapes
+# Rename and factor sample type
+physeq_df <- physeq_df %>% rename(SampleType = Type)
+physeq_df$SampleType <- factor(physeq_df$SampleType, levels = c("Male", "Female", "Grapes"))
+
+# Kruskal-Wallis test
+kruskal_results <- physeq_df %>%
+  group_by(Genus) %>%
+  summarise(p_value = kruskal.test(Abundance ~ SampleType)$p.value) %>%
+  mutate(sig_label = case_when(
+    p_value < 0.001 ~ "***",
+    p_value < 0.01  ~ "**",
+    p_value < 0.05  ~ "*",
+    TRUE            ~ "ns"
+  ))
+
+print(kruskal_results)
+
+# Plot
+max_abundance <- max(physeq_df$Abundance, na.rm = TRUE)
+
+ggplot(physeq_df, aes(x = SampleType, y = Abundance, fill = SampleType, color = SampleType)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.6) +
+  geom_jitter(width = 0.2, size = 2, alpha = 0.8) +
+  facet_wrap(~Genus, scales = "free_y") +
+  stat_compare_means(method = "kruskal.test", label.y = max_abundance * 1.1) +
+  stat_compare_means(method = "wilcox.test", label = "p.signif", comparisons = list(
+    c("Male", "Female"),
+    c("Male", "Grapes"),
+    c("Female", "Grapes")
+  )) +
+  theme_minimal() +
+  labs(title = "Comparison of Genera Between Male, Female, and Grapes", x = "Sample Type", y = "Relative Abundance (%)") +
+  scale_fill_manual(values = c("Male" = "#E69F00", "Female" = "#56B4E9", "Grapes" = "#FC4E07")) +
+  scale_color_manual(values = c("Male" = "#E69F00", "Female" = "#56B4E9", "Grapes" = "#FC4E07")) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggsave("SourrotbacteriaTypemalefemalehost_Comparison.pdf", width = 8, height = 6, dpi = 600)
+
+#comparison across cultivar
+# Subset to grape samples and aggregate
+d16S_grapes <- subset_samples(d16S, Host == "Grapes")
+d16S_genus <- tax_glom(d16S_grapes, taxrank = "Genus")
+physeq_rel <- transform_sample_counts(d16S_genus, function(x) x / sum(x) * 100)
+
+# Filter and reshape
+target_genera <- c("Gluconobacter", "Acetobacter", "Bacillus", "Gluconoacetobacter", "Komagataeibacter")
+physeq_filtered <- subset_taxa(physeq_rel, Genus %in% target_genera)
+physeq_df <- psmelt(physeq_filtered)
+physeq_df$Genus <- factor(physeq_df$Genus, levels = target_genera)
+physeq_df <- physeq_df %>% rename(SampleType = Variety)
+physeq_df$SampleType <- factor(physeq_df$SampleType, levels = c("Sauvignon Blanc", "Chardonnay", "Petite Sirah", "Pinot Noir"))
+
+# Kruskal-Wallis test
+kruskal_results <- physeq_df %>%
+  group_by(Genus) %>%
+  summarise(p_value = kruskal.test(Abundance ~ SampleType)$p.value) %>%
+  mutate(sig_label = case_when(
+    p_value < 0.001 ~ "***",
+    p_value < 0.01  ~ "**",
+    p_value < 0.05  ~ "*",
+    TRUE            ~ "ns"
+  ))
+
+print(kruskal_results)
+
+# Max abundance per genus
+max_abundance_per_genus <- physeq_df %>%
+  group_by(Genus) %>%
+  summarise(max_abundance = max(Abundance, na.rm = TRUE))
+
+physeq_df <- left_join(physeq_df, max_abundance_per_genus, by = "Genus")
+
+# Plot
+ggplot(physeq_df, aes(x = SampleType, y = Abundance, fill = SampleType, color = SampleType)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.6) +
+  geom_jitter(width = 0.2, size = 2, alpha = 0.8) +
+  facet_wrap(~Genus, scales = "free_y") +
+  stat_compare_means(method = "kruskal.test", label.y = physeq_df$max_abundance * 1.1) +
+  stat_compare_means(method = "wilcox.test", label = "p.signif", comparisons = list(
+    c("Sauvignon Blanc", "Chardonnay"),
+    c("Sauvignon Blanc", "Petite Sirah"),
+    c("Sauvignon Blanc", "Pinot Noir"),
+    c("Chardonnay", "Petite Sirah"),
+    c("Chardonnay", "Pinot Noir"),
+    c("Petite Sirah", "Pinot Noir")
+  )) +
+  theme_minimal() +
+  labs(title = "Comparison of Genera Between Grape Varieties", x = "Grape Variety", y = "Relative Abundance (%)") +
+  scale_fill_manual(values = c("Sauvignon Blanc" = "#E69F00", "Chardonnay" = "#56B4E9", "Petite Sirah" = "#009E73", "Pinot Noir" = "#F0E442")) +
+  scale_color_manual(values = c("Sauvignon Blanc" = "#E69F00", "Chardonnay" = "#56B4E9", "Petite Sirah" = "#009E73", "Pinot Noir" = "#F0E442")) +
+  theme(axis.text.x = element_text(angle =
+```
+
