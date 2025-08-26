@@ -3,12 +3,16 @@
 This repository provides supporting information and the code for the following manuscript. <br />
  <br />
 
-## Abundant microbial communities influence community assembly processes in fruit fly *Drosophila suzukii* and sour rot of grapes
+## Host Filtering and Ecological Processes Shape the Microbiomes of Wild Spotted Wing Drosophila and Grapes in a Sour Rot System
 
-Rishi Bhandari<sup>1</sup>, Zoe Wills <sup>1</sup>, Katharine Eastman<sup>1</sup>, David S. Kang <sup>1</sup>  <br />
+Rishi Bhandari<sup>1</sup>, Zoe Wills <sup>1</sup>, Jackie Harris <sup>2</sup>, Marnelle Salie <sup>2</sup>, Nana Ankrah <sup>3</sup>, Adam Chun-Nin Wong <sup>4</sup>, Katharine Eastman <sup>1</sup>, Joseph Ringbauer Jr <sup>1</sup>, R. Keith Striegler <sup>2</sup>, and David S. Kang <sup>1</sup>
+
  <br />
  <br />
-<sup>1</sup> Biological Control of Insects Research Laboratory, United States Department of Agriculture, Agriculture Research Service, Columbia, MO 65203, USA
+<sup>1</sup> Biological Control of Insects Research Laboratory, US Department of Agriculture, Agricultural Research Service, Columbia, Missouri, USA
+<sup>2</sup> E & J. Gallo Winery, Modesto, California, USA
+<sup>3</sup> Biological Science Department, State University of New York Plattsburgh, Plattsburgh, New York, USA
+<sup>4</sup> Department of Entomology and Nematology, University of Florida, Gainesville, Florida, USA
 
  <br />
  <br />       
