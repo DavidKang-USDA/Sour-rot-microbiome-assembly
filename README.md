@@ -36,6 +36,12 @@ Corresponding Author: Dave Kang, Dave.Kang@usda.gov
 
 3. [Absolute Abundance](https://github.com/DavidKang-USDA/Sour-rot-microbiome-assembly/blob/main/R%20Scripts/Absolute%20abundance.Rmd) - This script is to compare the absolute abundance of microbial communities across various host types and their associated statistics.
 
+4.  [Abundance classification](https://github.com/DavidKang-USDA/Sour-rot-microbiome-assembly/blob/main/R%20Scripts/Classification%20of%20abundant%20and%20rare%20using%20ulrb%20package.Rmd) - This script is to use ulrb (Unsupervised Learning based Definition of the Rare Biosphere) package that uses unsupervised machine learning to classify ASVs into abundance categories such as "rare," "undetermined," and "abundant".
+
+5.  [Distance decay and Neutral model](https://github.com/DavidKang-USDA/Sour-rot-microbiome-assembly/blob/main/R%20Scripts/Distance%20decay%20and%20neutral%20model.Rmd) - This script analyzes microbial community assembly using geographic distance (via the Haversine formula), phylogenetic turnover (βMNTD), and the Sloan Neutral Model to assess the role of stochastic versus deterministic processes in microbiome structure
+
+
+
    #### *Note: The statistics for network comparison require huge memory and cores. So it is recommended to run this analysis in HPC.*
 
 
