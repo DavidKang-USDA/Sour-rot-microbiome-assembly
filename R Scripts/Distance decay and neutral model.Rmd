@@ -1,0 +1,392 @@
+---
+title: "Distance decay"
+output: html_document
+date: "2025-08-27"
+---
+
+```{r}
+#load libraries
+# Core Tidyverse & Data Manipulation
+library(dplyr)
+library(tidyverse) # Already includes dplyr, ggplot2, etc.
+library(plyr)      # Note: Load before dplyr to avoid function conflicts, or use dplyr:: specific calls
+
+# Phyloseq & Microbiome Analysis
+library(phyloseq)
+library(vegan)
+library(picante)
+library(microeco)
+library(mecoturn)
+library(NST)
+
+# Spatial Analysis
+library(geosphere)
+
+# Modeling & Stats
+library(tyRa)      # For neutral community model
+library(minpack.lm)
+library(Hmisc)
+library(stats4)
+
+# Plotting & Visualization
+library(ggplot2)
+library(ggtree)
+library(plotly)
+library(webshot) # may require phantomjs installation via webshot::install_phantomjs()
+
+```
+
+
+```{r}
+# Load all initial phyloseq objects from their respective .rds files.
+
+d16S_fly    <- readRDS("./d16S_fly_classified.rds")
+d16S_grapes <- readRDS("./d16S_grapes_classified.rds")
+ITS         <- readRDS("./ITS_with_classification.rds") # Main ITS object for neutral model
+dITS        <- readRDS("./Gallownormfungi.rds")      # Fungal object for distance-decay
+
+
+# -----------------------------------------------------------------------------
+# 1. DISTANCE-DECAY RELATIONSHIPS
+# -----------------------------------------------------------------------------
+# This section analyzes the relationship between geographic distance and
+# community dissimilarity (both taxonomic and phylogenetic).
+
+# --- 1.1 Define the Analysis Function ---
+# This function avoids code repetition by handling the full analysis for any given phyloseq object.
+
+analyze_distance_decay <- function(physeq_obj, organism_name) {
+
+  cat(paste("\n--- Starting Distance-Decay Analysis for:", organism_name, "---\n"))
+
+  # 1. PREPARE DATA
+  otu_tab <- as.data.frame(otu_table(physeq_obj))
+  meta_tab <- as.data.frame(sample_data(physeq_obj))
+  phy_tree <- phy_tree(physeq_obj)
+
+  # Transpose OTU table (samples as rows) and filter empty samples
+  otu_filt <- t(otu_tab)
+  otu_filt <- otu_filt[rowSums(otu_filt) > 0, , drop = FALSE]
+  
+  if (nrow(otu_filt) == 0) {
+    stop("OTU table is empty after filtering zero-sum samples.")
+  }
+
+  # Match metadata to the filtered OTU table
+  meta_filt <- meta_tab[rownames(otu_filt), ]
+  if (!all(rownames(otu_filt) == rownames(meta_filt))) {
+    stop("Mismatch between OTU table and metadata sample names.")
+  }
+
+  # 2. CALCULATE DISTANCE MATRICES
+  # Geographic distance (in km)
+  geo_dist_m <- distm(meta_filt[, c("longitude", "latitude")], fun = distHaversine)
+  geo_dist <- as.dist(geo_dist_m / 1000)
+
+  # Taxonomic (Bray-Curtis) distance
+  bray_dist <- vegdist(otu_filt, method = "bray")
+
+  # Phylogenetic (betaMNTD) distance
+  mntd_dist <- comdistnt(otu_filt, cophenetic(phy_tree), abundance.weighted = FALSE)
+  mntd_dist <- as.dist(mntd_dist)
+  
+  # 3. PERFORM MANTEL TESTS
+  mantel_bray <- mantel(bray_dist, geo_dist, method = "spearman")
+  cat("\nMantel test for Bray-Curtis vs. Geographic Distance:\n")
+  print(mantel_bray)
+
+  mantel_mntd <- mantel(mntd_dist, geo_dist, method = "spearman")
+  cat("\nMantel test for betaMNTD vs. Geographic Distance:\n")
+  print(mantel_mntd)
+
+  # 4. CREATE AND SAVE PLOTS
+  # Function to generate a standard plot
+  generate_plot <- function(dist_x, dist_y, x_lab, y_lab, title, color, filename) {
+    plot_df <- data.frame(GeoDist = as.vector(dist_x), BetaDiv = as.vector(dist_y))
+    lm_fit <- lm(BetaDiv ~ GeoDist, data = plot_df)
+    slope <- coef(lm_fit)[2]
+    intercept <- coef(lm_fit)[1]
+    r_squared <- summary(lm_fit)$r.squared
+    
+    eq_label <- paste("y = ", round(slope, 4), "x + ", round(intercept, 4),
+                      "\nR-squared = ", round(r_squared, 4), sep = "")
+
+    p <- ggplot(plot_df, aes(x = GeoDist, y = BetaDiv)) +
+      geom_point(alpha = 1, size = 0.7, color = color) +
+      geom_smooth(method = "lm", col = "#D55E00", se = TRUE) +
+      labs(title = title, x = x_lab, y = y_lab) +
+      annotate("text", x = Inf, y = Inf, label = eq_label, hjust = 1.1, vjust = 2, size = 4) +
+      theme_minimal() +
+      theme(
+        plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+        axis.title = element_text(size = 12)
+      )
+    
+    print(p)
+    ggsave(filename, width = 5, height = 4, dpi = 600)
+    cat(paste("Saved plot:", filename, "\n"))
+  }
+
+  # Generate plot for Bray-Curtis
+  generate_plot(geo_dist, bray_dist,
+                x_lab = "Geographic Distance (Km)", y_lab = "Bray-Curtis Dissimilarity",
+                title = paste(organism_name, "- Taxonomic Distance-Decay"),
+                color = "#56B4E9", filename = paste0(organism_name, "_BrayCurtis_Decay.pdf"))
+
+  # Generate plot for betaMNTD
+  generate_plot(geo_dist, mntd_dist,
+                x_lab = "Geographic Distance (Km)", y_lab = "Phylogenetic Distance (betaMNTD)",
+                title = paste(organism_name, "- Phylogenetic Distance-Decay"),
+                color = "#009E73", filename = paste0(organism_name, "_Phylogenetic_Decay.pdf"))
+
+  return(list(mantel_bray = mantel_bray, mantel_mntd = mantel_mntd))
+}
+
+
+# --- 1.2 Run Analysis on All Datasets ---
+fly_decay_results    <- analyze_distance_decay(d16S_fly, "Fly_16S")
+grapes_decay_results <- analyze_distance_decay(d16S_grapes, "Grapes_16S")
+fungi_decay_results  <- analyze_distance_decay(dITS, "Fungi_ITS")
+
+
+# -----------------------------------------------------------------------------
+# 2. NEUTRAL COMMUNITY MODELS
+# -----------------------------------------------------------------------------
+# This section fits a neutral community model to each dataset and visualizes
+# the results, coloring taxa by genus and shaping them by classification.
+
+# --- 2.1 Define the Analysis Function ---
+analyze_neutral_model <- function(physeq_obj, organism_name, csv_path) {
+  
+  cat(paste("\n--- Starting Neutral Model Analysis for:", organism_name, "---\n"))
+  
+  # 1. PREPARE DATA (Filter to ASVs with Genus-level classification)
+  tax_df <- as.data.frame(tax_table(physeq_obj)) %>% rownames_to_column("ASV")
+  tax_genus <- tax_df %>%
+    filter(!is.na(Genus) & Genus != "") %>%
+    column_to_rownames("ASV")
+  
+  physeq_genus <- prune_taxa(rownames(tax_genus), physeq_obj)
+  otu_transformed <- t(otu_table(physeq_genus)@.Data)
+
+  # 2. FIT THE SLOAN NEUTRAL COMMUNITY MODEL (SNCM)
+  model_fit <- tyRa::fit_sncm(spp = otu_transformed, taxon = data.frame(tax_table(physeq_genus)))
+  
+  # Save the raw model output
+  write.csv(model_fit, paste0(organism_name, "_NeutralModel_RawOutput.csv"), row.names = TRUE)
+  cat(paste("Saved raw model output to:", paste0(organism_name, "_NeutralModel_RawOutput.csv"), "\n"))
+
+  # Plot the basic model fit
+  fit_plot <- plot_sncm_fit(model_fit, fill = NULL, title = paste(organism_name, "Model Fit"))
+  print(fit_plot)
+
+  # 3. PLOT FROM PROCESSED CSV
+  # NOTE: The following code assumes a CSV file has been manually created/edited
+  # from the raw output above. This manual step should be documented.
+  cat(paste("Loading manually processed data from:", csv_path, "\n"))
+  if (!file.exists(csv_path)) {
+    warning(paste("CSV file not found:", csv_path, "- skipping combo plot."))
+    return(NULL)
+  }
+  
+  model_results <- read.csv(csv_path)
+  model_results$Classification <- str_to_upper(model_results$Classification)
+  log_p <- log(model_results$p)
+
+  # Define colors and shapes
+  genus_colors <- c(
+    "Komagataeibacter" = "#fdbf6f", "Acetobacter" = "#1f78b4", "Vibrio" = "#33a02c",
+    "Erwinia" = "#6a3d9a", "Gluconobacter" = "#b2df8a", "Ochrobactrum" = "#7570b3",
+    "Paenibacillus" = "#e7298a", "Taibaiella" = "#a6761d", "Janthinobacterium" = "blue",
+    # Fungal Genera
+    "g__Pichia" = "#b2df8a", "g__Hanseniaspora" = "#31a354", "g__Penicillium" = "#fdbf6f",
+    "g__Zygosaccharomyces" = "#a6761d", "g__Ramularia" = "#a6cee3", "g__Saccharomyces" = "#7570b3",
+    "g__Seimatosporium" = "#ffff99", "g__Aspergillus" = "#e7298a"
+  )
+  other_color <- "#000000"
+
+  classification_shapes <- c("ABUNDANT" = 16, "RARE" = 17, "CRT" = 15)
+  other_shape <- 1 # Open circle for others
+
+  # Assign colors and shapes
+  model_results$color <- genus_colors[model_results$Genus]
+  model_results$color[is.na(model_results$color)] <- other_color
+  
+  model_results$pch <- classification_shapes[model_results$Classification]
+  model_results$pch[is.na(model_results$pch)] <- other_shape
+  
+  # Extract R-squared and migration rate from model fit object for annotation
+  r_squared_val <- round(model_fit$Rsqr, 4)
+  m_val_sci <- format(model_fit$m, scientific = TRUE, digits = 2)
+
+  # Plotting
+  plot_filename <- paste0(organism_name, "_NeutralModel_Plot.pdf")
+  pdf(file = plot_filename, width = 6, height = 5)
+  
+  plot(log_p, model_results$freq,
+       cex = 0.8, pch = model_results$pch, col = model_results$color,
+       xlim = c(-12, 0), xlab = "log(mean relative abundance)", ylab = "occurrence frequency")
+  
+  # Add model prediction lines
+  lines(log_p, model_results$freq.pred, col = "red", lwd = 1)
+  lines(log_p, model_results$pred.upr, col = "red", lty = 4)
+  lines(log_p, model_results$pred.lwr, col = "red", lty = 4)
+  
+  # Add annotations
+  text(-11, 1, bquote(R^2 == .(r_squared_val)), cex = 1)
+  text(-10.8, 0.95, bquote(m == .(m_val_sci)), cex = 1)
+  
+  # Legends
+  legend_genera <- names(genus_colors)[names(genus_colors) %in% unique(model_results$Genus)]
+  legend("bottomleft", legend = c(legend_genera, "Others"),
+         col = c(genus_colors[legend_genera], other_color),
+         pch = 15, title = "Genus", bty = "n", cex = 0.7)
+  
+  legend("topleft", legend = names(classification_shapes),
+         pch = classification_shapes, col = "black",
+         title = "Classification", bty = "n", cex = 0.7)
+         
+  dev.off()
+  cat(paste("Saved combo plot to:", plot_filename, "\n"))
+  
+  return(model_fit)
+}
+
+# --- 2.2 Run Analysis on All Datasets ---
+# NOTE: This assumes you have created "fly.csv", "grapes.csv", and "ITS.csv"
+# from the raw model outputs generated by the function.
+fly_neutral_model    <- analyze_neutral_model(d16S_fly, "Fly_16S", "fly.csv")
+grapes_neutral_model <- analyze_neutral_model(d16S_grapes, "Grapes_16S", "grapes.csv")
+its_neutral_model    <- analyze_neutral_model(ITS, "Fungi_ITS", "ITS.csv")
+
+
+# -----------------------------------------------------------------------------
+# 3. PHYLOGENETIC COMMUNITY STRUCTURE & ASSEMBLY PROCESSES
+# -----------------------------------------------------------------------------
+# This section uses the microeco package to calculate Beta Net Relatedness Index
+# (betaNTI) and infer ecological processes driving community assembly.
+
+# --- 3.1 Bacterial Community (16S) ---
+cat("\n--- Calculating Assembly Processes for Bacteria ---\n")
+d16S <- readRDS("./bacteria.css.norm.rds") # Load the appropriate object
+meco_bact <- phyloseq2meco(d16S)
+
+# Calculate betaNTI within each Host group ("Fly", "Grapes")
+sesbeta_each_bact <- list()
+all_groups_bact <- unique(meco_bact$sample_table$Host)
+for(group in all_groups_bact){
+  cat(paste("Calculating betaNTI for host:", group, "\n"))
+  temp_model <- trans_nullmodel$new(meco_bact, group = "Host", select_group = group)
+  temp_model$cal_ses_betampd(runs = 500, abundance.weighted = TRUE)
+  sesbeta_each_bact[[group]] <- temp_model$res_ses_betampd
+}
+
+# Merge results into a symmetrical matrix
+betaNTI_bact_matrix <- lapply(sesbeta_each_bact, reshape2::melt) %>%
+  do.call(rbind, .) %>%
+  reshape2::dcast(., Var1~Var2, value.var = "value") %>%
+  column_to_rownames(var = "Var1")
+
+meco_bact$beta_diversity[["betaNTI"]] <- betaNTI_bact_matrix
+
+# Plot betaNTI distributions
+trans_beta_bact <- trans_beta$new(dataset = meco_bact, group = "Host", measure = "betaNTI")
+trans_beta_bact$cal_group_distance()
+trans_beta_bact$cal_group_distance_diff(method = "wilcox")
+print(trans_beta_bact$res_group_distance_diff)
+
+bnti_plot_bact <- trans_beta_bact$plot_group_distance(boxplot_add = "mean") +
+  geom_hline(yintercept = c(-2, 2), linetype = "dashed") +
+  scale_fill_manual(values = c("Fly" = "#1A85FF", "Grapes" = "#FC4E07")) +
+  theme_minimal() +
+  labs(title = "Bacterial betaNTI by Host")
+  
+print(bnti_plot_bact)
+ggsave("Bacteria_betaNTI.pdf", width = 5, height = 4, dpi = 700)
+
+# Calculate assembly processes
+proc_model_bact <- trans_nullmodel$new(meco_bact, filter_thres = 0.0005)
+proc_model_bact$cal_rcbray(runs = 1000)
+proc_model_bact$cal_process(use_betamntd = TRUE, group = "Host") # Assumes betaMNTD/betaMPD already run
+print(proc_model_bact$res_process)
+
+
+# --- 3.2 Fungal Community (ITS) ---
+cat("\n--- Calculating Assembly Processes for Fungi ---\n")
+meco_fungi <- phyloseq2meco(dITS) # Using the same object as distance-decay
+
+# Calculate betaNTI within each Type group ("Female", "Male")
+sesbeta_each_fungi <- list()
+all_groups_fungi <- unique(meco_fungi$sample_table$Type)
+for(group in all_groups_fungi){
+  cat(paste("Calculating betaNTI for type:", group, "\n"))
+  temp_model <- trans_nullmodel$new(meco_fungi, group = "Type", select_group = group)
+  temp_model$cal_ses_betampd(runs = 999, abundance.weighted = TRUE)
+  sesbeta_each_fungi[[group]] <- temp_model$res_ses_betampd
+}
+
+# Merge results
+betaNTI_fungi_matrix <- lapply(sesbeta_each_fungi, reshape2::melt) %>%
+  do.call(rbind, .) %>%
+  reshape2::dcast(., Var1~Var2, value.var = "value") %>%
+  column_to_rownames(var = "Var1")
+
+meco_fungi$beta_diversity[["betaNTI"]] <- betaNTI_fungi_matrix
+
+# Plot betaNTI distributions
+trans_beta_fungi <- trans_beta$new(dataset = meco_fungi, group = "Type", measure = "betaNTI")
+trans_beta_fungi$cal_group_distance()
+trans_beta_fungi$cal_group_distance_diff(method = "wilcox")
+print(trans_beta_fungi$res_group_distance_diff)
+
+bnti_plot_fungi <- trans_beta_fungi$plot_group_distance(boxplot_add = "mean") +
+  geom_hline(yintercept = c(-2, 2), linetype = "dashed") +
+  scale_fill_manual(values = c("Female" = "#00AFBB", "Male" = "#E7B800")) +
+  theme_minimal() +
+  labs(title = "Fungal betaNTI by Type")
+
+print(bnti_plot_fungi)
+ggsave("Fungi_betaNTI.pdf", width = 6, height = 4, dpi = 700)
+
+# Calculate assembly processes
+proc_model_fungi <- trans_nullmodel$new(meco_fungi, filter_thres = 0.0005)
+proc_model_fungi$cal_rcbray(runs = 1000)
+proc_model_fungi$cal_process(use_betamntd = TRUE, group = "Type")
+print(proc_model_fungi$res_process)
+
+
+# --- 3.3 Summarize and Plot Assembly Processes ---
+# NOTE: This step assumes you have manually combined the process results
+# from bacteria and fungi into a single CSV file named "process.csv".
+cat("\n--- Plotting Combined Assembly Processes ---\n")
+
+if (!file.exists("process.csv")) {
+  warning("process.csv not found. Skipping final summary plot.")
+} else {
+  process_df <- read.csv("process.csv")
+  
+  # Ensure factor levels are correctly ordered for plotting
+  process_df$Host <- factor(process_df$Host, levels = c("Fly", "Grapes", "FFemale", "FMale"))
+  
+  # Define colors for processes
+  process_colors <- c("variable selection" = "#bf9b30", "homogeneous selection" = "#FC4E07",
+                      "dispersal limitation" = "#66B2FF", "homogeneous dispersal" = "#99FF99",
+                      "drift" = "#FF9999")
+
+  # Create the stacked bar plot
+  process_plot <- ggplot(process_df, aes(x = Host, y = percentage, fill = process)) +
+    geom_bar(stat = "identity", color = "black", size = 0.3) +
+    scale_fill_manual(values = process_colors) +
+    labs(
+      title = "Relative Influence of Ecological Processes",
+      x = "Host/Group",
+      y = "Percentage of Pairwise Comparisons"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  print(process_plot)
+  ggsave("Assembly_Processes_Summary.pdf", width = 6, height = 5, dpi = 700)
+}
+```
+
