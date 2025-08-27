@@ -43,7 +43,6 @@ library(webshot) # may require phantomjs installation via webshot::install_phant
 d16S_fly    <- readRDS("./d16S_fly_classified.rds")
 d16S_grapes <- readRDS("./d16S_grapes_classified.rds")
 ITS         <- readRDS("./ITS_with_classification.rds") # Main ITS object for neutral model
-dITS        <- readRDS("./Gallownormfungi.rds")      # Fungal object for distance-decay
 
 
 # -----------------------------------------------------------------------------
