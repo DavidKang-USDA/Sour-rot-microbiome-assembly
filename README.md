@@ -42,49 +42,67 @@ Corresponding Author: Dave Kang, Dave.Kang@usda.gov
 
 
 
-   #### *Note: The statistics for network comparison require huge memory and cores. So it is recommended to run this analysis in HPC.*
-
-
 ```
 
-├─ README.md
-├─ R Scripts
-│  ├─ Co-occurence network.R
-│  ├─ Differential abundance, core, cooccurence,  and upset plot.R
-│  ├─ Diversity analysis.R
-│  └─ Preprocessing.R
-├─ Intermediate files
-│  ├─ Bacterial abundance
-│  │  ├─ 16S.corvallis_PS.rds
-│  │  ├─ 16S_taxo2.rds
-│  │  ├─ ASVs.fa
-│  │  ├─ ASVs_counts.tsv
-│  │  ├─ ASVs_taxonomy.tsv
-│  │  ├─ corvallis_metadata.csv
-│  │  └─ seqtab_final.rds
-│  └─ Bacterial co-occurence network
-│     ├─ swd_malevsfemale_spring_network.rds
-│     └─ swd_spring_network.rds
-├─ Figures
-│  ├─ Main figures
-│  │  ├─ Fig. 1.pdf
-│  │  ├─ Fig. 2.pdf
-│  │  ├─ Fig. 3.pdf
-│  │  ├─ Fig. 4.pdf
-│  │  └─ Fig. 5.pdf
-│  └─ Supplementary figures
-│     ├─ Fig. S1.pdf
-│     ├─ Fig. S2.pdf
-│     ├─ Fig. S3.pdf
-│     └─ Fig. S4.pdf
-└─ Table
-   └─ Supplementary tables
-      ├─ Table S1.xlsx
-      ├─ Table S2.xlsx
-      ├─ Table S3.xlsx
-      ├─ Table S4.xlsx
-      ├─ Table S5.xlsx
-      └─ Table S6.xlsx
+├── README.md
+├── Figures
+│   ├── Main figures
+│   │   ├── Fig. 1.tif
+│   │   ├── Fig. 2.tif
+│   │   ├── Fig. 3.tif
+│   │   ├── Fig. 4.tif
+│   │   ├── Fig. 5.tif
+│   │   └── Fig. 6.tif
+│   └── Supplementary figures
+│       ├── Fig. S1.tif
+│       ├── Fig. S10.tif
+│       ├── Fig. S11.tif
+│       ├── Fig. S12.tif
+│       ├── Fig. S13.tif
+│       ├── Fig. S14.tif
+│       ├── Fig. S2.tif
+│       ├── Fig. S3.tif
+│       ├── Fig. S4.tiff
+│       ├── Fig. S5.tif
+│       ├── Fig. S6.tif
+│       ├── Fig. S7.tif
+│       ├── Fig. S8.tif
+│       └── Fig. S9.tif
+├── Intermediate files
+│   ├── Bacteria
+│   │   ├── 16S.Gallow_PS.rds
+│   │   ├── absolute_bacteria.csv
+│   │   ├── ASVs_counts.tsv
+│   │   ├── ASVs_taxonomy.tsv
+│   │   └── ASVs.fa
+│   ├── Distance decay and neutral model
+│   │   ├── d16S_fly_classified.rds
+│   │   ├── d16S_grapes_classified.rds
+│   │   └── ITS_with_classification.rds
+│   ├── Fungi
+│   │   ├── absolute_fungi.csv
+│   │   ├── ASVs_counts.tsv
+│   │   ├── ASVs_taxonomy.tsv
+│   │   ├── ASVs.fa
+│   │   └── Gallowfungi2.rds
+│   └── Microbiota weight and density
+│       ├── Fly Weight.csv
+│       └── Microbiota density.xlsx
+├── R Scripts
+│   ├── Absolute abundance.Rmd
+│   ├── Classification of abundant and rare using ulrb package.Rmd
+│   ├── Distance decay and neutral model.Rmd
+│   ├── Diversity, differential abundance, core, upset and co-occurence.Rmd
+│   └── Preprocessing.Rmd
+└── Tables
+    └── Supplementary tables
+        ├── Table S1.xlsx
+        ├── Table S2.xlsx
+        ├── Table S3.xlsx
+        ├── Table S4.xlsx
+        ├── Table S5.xlsx
+        ├── Table S6.xlsx
+        └── Table S7.xlsx
 ```
 ## Data Availability
 
@@ -96,3 +114,5 @@ This research used resources provided by the SCINet project and/or the AI Center
 
 ## Funding
 Rishi Bhandari was supported by a postdoctoral fellowship funded by the USDA Agricultural Research Service's SCINet Program and AI Center of Excellence, ARS project numbers 0201-88888-003-000D and 0201-88888-002-000D, and administered by the Oak Ridge Institute for Science and Education (ORISE) through an interagency agreement between the U.S. Department of Energy (DOE) and the U.S. Department of Agriculture (USDA). ORISE is managed by ORAU under DOE contract number DESC0014664. All opinions expressed in this paper are the authors and do not necessarily reflect the policies and views of the USDA, DOE, or ORAU/ORISE.
+
+
